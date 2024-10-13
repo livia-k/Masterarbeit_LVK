@@ -1,0 +1,1835 @@
+---
+title: "MA"
+output:
+  word_document: default
+  pdf_document: default
+date: "2024-10-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+# Daten importieren (individueller Datensatz)
+install.packages("rlang")
+install.packages("dplyr") 
+install.packages("tidyverse")
+install.packages("utf8")
+
+library(rlang)
+library(dplyr)
+library(tidyverse)
+library(readr)
+library(utf8)
+
+load("mipsnp.RData")
+
+mipsnp <- df
+
+
+# get rid of variables
+data_mips <- mipsnp |>
+  select(-contains("dob"),
+         -contains("nationality"),
+         -contains("language"),
+         -contains("ant.date"),
+         -contains("civil"),
+         -#contains("socio"),
+         -#contains("handedness"),
+         -contains("drg"),
+         -contains("ehi"))
+
+
+save(data_all, file="mips.RData")
+```
+
+
+```{r}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#  Hauptkomponentenanalyse (PCA)
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+install.packages("caret")
+library(caret)
+
+install.packages("psych")
+library(psych)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# Daten einlesen
+
+load("mipsnp.RData")
+
+mipsnp <- df
+
+
+# Datensatz für PCA
+# get rid of variables
+
+data_mips_PCA <- mipsnp |>
+  select(-contains("dob"),
+         -contains("age"),
+         -contains("group"),
+         -contains("nationality"),
+         -contains("language"),
+         -contains("ant.date"),
+         -contains("civil"),
+         -contains("school"),
+         -contains("education"),
+         -contains("handedness"),
+         -contains("drg"),
+         -contains("ehi"))
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# Werte herausnehmen, die auch bei Coralie nicht drin sind um auf gleiche Anzahl Zeilen zu kommen
+
+data_mips_PCA <- subset(data_mips_PCA, id!= "MIPS.2205" & id!="MIPS.3217")
+
+
+data_mips_PCA <- data_mips_PCA |>
+  select(-contains("id"),
+         -contains("dob"),
+         -contains("age"),
+         -contains("group"),
+         -contains("nationality"),
+         -contains("language"),
+         -contains("ant.date"),
+         -contains("civil"),
+         -contains("school"),
+         -contains("education"),
+         -contains("handedness"),
+         -contains("drg"),
+         -contains("ehi"))
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# NA Wert ersetzten durch den Median
+
+# Median der Variable "stroop.int.md" berechnen
+median_stroop <- median(data_mips_PCA$stroop.int.md, na.rm = TRUE)
+
+# NA-Werte in "stroop.int.md" durch den Median ersetzen
+data_mips_PCA$stroop.int.md[is.na(data_mips_PCA$stroop.int.md)] <- median_stroop
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# PREPROCESSING
+# center = zentriert die werte und scale -> z-Werte mit MW=0 und SD=1
+
+# Angenommen, 'data' ist dein Datensatz
+
+# Vorverarbeitung: Daten zentrieren und skalieren
+pproc <- preProcess(data_mips_PCA, method = c("BoxCox", "center", "scale"))
+
+data_mips_PCA <- predict(pproc, data_mips_PCA)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# Unrotierte Lösung mit 15 Hauptkomponenten
+# durch die geeignete Rotations Methode wird versucht, die erklärende Varianz der Ladung zu optimieren
+
+Model1 <- principal(data_mips_PCA, nfactors = 15, rotate = "none")
+Model1
+
+# Loadings ausgeben
+print(Model1$loadings, digits = 2, sort = TRUE)
+
+# Kommunalitäten für unrotierte PCA (hier Model1)
+print(Model1$communalities, digits = 2)
+
+#------------------------------------------------------------------------------------------------------------------------------
+# ROTATION
+# Orthogonale Rotation
+# Rotierte PCA mit Varimax
+
+# Model1_rot <- 
+Model1_rot <- principal(data_mips, nfactors = 15, rotate = "varimax")
+
+# Sortiert ausgeben lassen:
+print.psych(Model1_rot, sort = TRUE)
+Model1_rot
+
+# Ladungen für rotierte PCA mit Varimax (hier Model1_rot)
+print(Model1_rot$loadings, digits = 2)
+
+# Kommunalitäten für rotierte PCA mit Varimax (hier Model1_rot)
+print(Model1_rot$communalities, digits = 2)
+
+# Es werden 15 Hauptkomponenten mit dem Eigenwert > 1 extrahiert. Die Grösse des Eigenwerts entpricht dem Erklärungswert der
+# Hauptkomponente
+
+# unter Standarized loadings werden die Loadings ausgegeben. Die zeigen, wie gut die einzelnen Beobachtungen auf die jeweilige
+# Hauptkomponente laden.
+# Faustregel:
+#             > 0.7       sehr gut
+#             0.5-0.69    hoch
+#             0.3-0.49    dürftig 
+#             <0.3        sehr dürftig
+
+# -> je höher der Wert, desto besser wird die Beobachtung durch die Hauptkomponente repräsentiert
+
+# Kommunalität h2: ist ein Ladungsgütekrierium
+# -> ist sie niedrig, werden die Variablen nicht gut durch die extrahierte Komponente repräsentiert
+
+# Proportion Var: Anteil an der Gesamtvarianz
+# Cumulative Var: Aufsummierte Varianzanteile, die sagt, dass durch das Modell mit 15 Hauptkomponenten
+# 79% der Varianz erklärt wird
+
+# Grafische Darstellung
+fa.diagram(Model1_obli, cut = 0.5, cex = 0.8, rsize = 0.5, main = "kognitve Leistungsfähigkeit")
+
+
+pdf("PCA.pdf")
+
+#------------------------------------------------------------------------------------------------------------------------------
+# LADUNGEN SORTIEREN
+
+# Beispiel: Sortiere Ladungen nach der ersten Variable (erste Spalte)
+sorted_loadings <- Model1_obli$loadings[order(abs(Model1_obli$loadings[, 1]), decreasing = TRUE), ]
+print(sorted_loadings, digits = 2)
+
+# Beispiel: Überprüfe Eigenwerte
+print(Model1_obli$values, digits = 2)
+
+# ------------------------------------------------------------------------------------------------------------------------------
+# LADUNGEN ÜBERSICHTLICHER DARSTELLEN
+# Laden des PCA-Modells (beispielsweise Model1)
+loadings <- Model1_obli$loadings
+
+# Runden der Ladungen auf zwei Dezimalstellen
+rounded_loadings <- round(loadings, digits = 2)
+
+# Anzeigen der gerundeten Ladungen
+print(rounded_loadings)
+
+#------------------------------------------------------------------------------------------------------------------------------
+# PCA MIT 3 FAKTOREN
+
+# ohne vs. mit rotation und nur 3 Faktoren 
+
+# ohne Rotation
+ModelOR <- principal(data_mips_PCA, nfactors = 3, rotate = "none")
+
+ModelOR
+
+print(ModelOR, cut = 0.5, sort = TRUE, digits = 2)
+
+WerteOR <- ModelOR$scores
+
+head(WerteOR, n = 100)
+
+#------------------------------------------------------------------------------------------------------------------------------
+# mit Varimax Rotation
+
+ModelVR <- principal(data_mips_PCA, nfactors = 3, rotate = "varimax")
+
+ModelVR
+
+print(ModelVR, cut = 0.5, sort = TRUE, digits = 2)
+
+WerteVR <- ModelVR$scores
+
+head(WerteVR, n = 100)
+
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# LADUNGEN EXTRAHIEREN PRO FAKTOR
+# Extrahiere die Ladungen für jeden Faktor
+
+loadings_matrix <- ModelOR$scores
+
+print(loadings_matrix)
+
+# Die Ladungen pro Faktor extrahieren
+verbales_G <- loadings_matrix[, 1]
+
+# Füge die Ladungen als neue Variablen zum ursprünglichen Datensatz hinzu
+data_with_loadings <- cbind(data_mips_PCA, loadings_matrix)
+
+# Umbenenne die Spalten für Klarheit
+colnames(data_with_loadings) <- c(colnames(data_mips_PCA), paste0("PC", 1:ncol(loadings_matrix)))
+
+# Umbenennen der Faktoren
+colnames(data_with_loadings)[colnames(data_with_loadings) == "PC1"] <- "verbales_G"
+colnames(data_with_loadings)[colnames(data_with_loadings) == "PC2"] <- "EF"
+colnames(data_with_loadings)[colnames(data_with_loadings) == "PC3"] <- "AG"
+
+# Zeige den aktualisierten Datensatz
+print(data_with_loadings)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+library(readr)
+
+abuse.df <- read_csv("mein_datensatz.csv")
+
+
+data_all <- cbind(data_with_loadings, abuse.df)
+```
+
+```{r}
+#~~~~~~~~~~~~~~~~~~~~~~~~
+# Deskriptive Statistik
+#~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Alter
+summary(data_all$age)
+sd(data_all$age)
+
+alter <- aggregate(data_all$age, by = list(data_all$group...2), FUN = function(x) 
+  c(Median = median(x), Minimum = min(x), Maximum = max(x), Standardabweichung = sd(x)))
+
+alter
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Ausbildungsjahre
+# ACHTUNG: Ausbildungsjahre ist bei MIPS school + edu!! (school ist nur Schuljahre, 
+# Edu wäre noch weitere Ausbildungsjahre)
+
+# zuerst school und edu zusamenfügen und Ausbildungsjahre nennen
+# fügt dann die Summe von school und edu in neue spalte ein
+mipsnp_Deskriptiv$Ausbildungsjahre <- mipsnp_Deskriptiv$education.years + mipsnp_Deskriptiv$sch
+
+summary(mipsnp_Deskriptiv$Ausbildungsjahre)
+sd(mipsnp_Deskriptiv$Ausbildungsjahre)
+
+ausbildung <- aggregate(mipsnp_Deskriptiv$Ausbildungsjahre, by = list(data_all$group...2), FUN = function(x) 
+  c(Median = median(x), Minimum = min(x), Maximum = max(x), Standardabweichung = sd(x)))
+
+ausbildung
+
+# -----------------------------------------------------------------------------------------------------------------------------
+# Deskriptive Statistik (überarbeitet)
+
+load("mipsnp.RData")
+
+mipsnp <- df
+
+# Achtung! in data_all sind nicht alle variablen enthalten
+# und bei mipsnp müssen noch zwei Probanden raus!!
+
+#Deskriptiv für Sozioökonimisch
+load("/Users/liviaprobst/Desktop/Daten_für_MIPS/np/mipsnp.RData")
+View(mipsnp)
+
+# Werte herausnehmen, die auch bei Coralie nicht drin sind um auf gleiche Anzahl Zeilen zu kommen
+# Wollen 62 Probanden
+mipsnp_Deskriptiv <- subset(mipsnp, id!= "MIPS.2205" & id!="MIPS.3217")
+View(mipsnp_Deskriptiv)
+
+# Sozioökonomischer Status
+
+summary(data_all$socio.economic.state)
+sd(data_all$socio.economic.state)
+
+socio <- aggregate(data_all$socio.economic.state, by = list(data_all$group...2), FUN = function(x) 
+  c(Median = median(x), Minimum = min(x), Maximum = max(x), Standardabweichung = sd(x)))
+
+socio
+
+# Sozioökonomischer Status (Variante Livia P.)
+
+summary(mipsnp_Deskriptiv$socio.economic.state)
+sd(mipsnp_Deskriptiv$socio.economic.state)
+
+socio <- aggregate(mipsnp_Deskriptiv$socio.economic.state, by = list(mipsnp_Deskriptiv$group), FUN = function(x) 
+  c(Median = median(x), Minimum = min(x), Maximum = max(x), Standardabweichung = sd(x)))
+
+socio
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Neurotizismus
+summary(data_all$neuroticism)
+sd(data_all$neuroticism)
+
+Neurotizismus <- aggregate(data_all$neuroticism, by = list(data_all$group...2), FUN = function(x) 
+  c(Median = median(x), Minimum = min(x), Maximum = max(x), Standardabweichung = sd(x)))
+
+Neurotizismus
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# MSI
+
+msi_cmsa_sv <- aggregate(data_all$msi_cmsa_sv, by = list(data_all$group...2), FUN = function(x) 
+  c(Median = median(x), Minimum = min(x), Maximum = max(x), Standardabweichung = sd(x)))
+
+msi_cmsa_sv
+
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# verbales Gedächtnis
+summary(data_all$verbales_G)
+sd(data_all$verbales_G)
+
+verbales_G <- aggregate(data_all$verbales_G, by = list(data_all$group...2), FUN = function(x) 
+  c(Median = median(x), Minimum = min(x), Maximum = max(x), Standardabweichung = sd(x)))
+
+verbales_G
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Exekutive Funktionen
+summary(data_all$EF)
+sd(data_all$EF)
+
+EF <- aggregate(data_all$EF, by = list(data_all$group...2), FUN = function(x) 
+  c(Median = median(x), Minimum = min(x), Maximum = max(x), Standardabweichung = sd(x)))
+
+EF
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Arbeitsgedächtnis
+summary(data_all$AG)
+sd(data_all$AG)
+
+AG <- aggregate(data_all$AG, by = list(data_all$group...2), FUN = function(x) 
+  c(Median = median(x), Minimum = min(x), Maximum = max(x), Standardabweichung = sd(x)))
+
+AG
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Abuse (CTQ)
+for (column in c("ea_cat", "pa_cat", "sa_cat", "en_cat", "pn_cat")) {
+  for (i in 1:nrow(data_all)) {
+    if (is.na(data_all[i, column])) {
+      data_all[i, column] <- 0
+    }
+    
+    else if (data_all[i, column] == "yes") {
+      data_all[i, column] <- 1
+    }
+    
+    else if (data_all[i, column] == "no") {
+      data_all[i, column] <- 0
+    }
+  }
+}
+
+data_all$abuse <- as.numeric(data_all$ea_cat) + as.numeric(data_all$pa_cat) + as.numeric(data_all$sa_cat) + as.numeric(data_all$en_cat) + as.numeric(data_all$pn_cat)
+summary(data_all$abuse)
+sd(data_all$abuse)
+
+abuse <- aggregate(data_all$abuse, by = list(data_all$group...2), FUN = function(x) 
+  c(Median = median(x), Minimum = min(x), Maximum = max(x), Standardabweichung = sd(x)))
+
+abuse
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+write.csv(msi_cmsa_sv, "exports/test.csv")
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+######################
+###GRUPPENVERGLEICH###
+######################
+
+# AGE
+
+kruskal_result_A <- kruskal.test(age ~ group...2, data = data_all)
+print(kruskal_result_A)
+
+# Paarweise Kruskal-Wallis-Tests durchführen
+pairwise_results_A <- list(
+  "CSA vs CTL" = kruskal.test(age ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CTL"))),
+  "CSEM vs CTL" = kruskal.test(age ~ group...2, data = subset(data_all, group...2 %in% c("CSEM", "CTL"))),
+  "CSA vs CSEM" = kruskal.test(age ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CSEM")))
+)
+
+# Chi-Quadrat-Werte extrahieren
+chi_squared_values_A <- sapply(pairwise_results, function(x) x$statistic)
+
+# p-Werte extrahieren
+p_values_A <- sapply(pairwise_results_A, function(x) x$p.value)
+
+# Bonferroni-Korrektur anwenden
+p_adjusted_A <- p.adjust(p_values_A, method = "bonferroni")
+
+# Ergebnisse anzeigen
+adjusted_results_A <- data.frame(
+  Comparison = names(p_values),
+  Chi_squared = chi_squared_values_A,
+  p_value = p_values_A,
+  p_adjusted = p_adjusted_A
+)
+
+print(adjusted_results_A)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Ausbildungsjahre ("Ausbildungsjahre")
+
+kruskal_result_AJ <- kruskal.test(education.years ~ group, data = mipsnp_Deskriptiv)
+print(kruskal_result_AJ)
+
+# Paarweise Kruskal-Wallis-Tests durchführen
+pairwise_results_AJ <- list(
+  "CSA vs CTL" = kruskal.test(education.years ~ group, data = subset(mipsnp_Deskriptiv, group %in% c("CSA", "CTL"))),
+  "CSEM vs CTL" = kruskal.test(education.years ~ group, data = subset(mipsnp_Deskriptiv, group %in% c("CSEM", "CTL"))),
+  "CSA vs CSEM" = kruskal.test(education.years ~ group, data = subset(mipsnp_Deskriptiv, group %in% c("CSA", "CSEM")))
+)
+
+# Chi-Quadrat-Werte extrahieren
+chi_squared_values_AJ <- sapply(pairwise_results_AJ, function(x) x$statistic)
+
+# p-Werte extrahieren
+p_values_AJ <- sapply(pairwise_results_AJ, function(x) x$p.value)
+
+# Bonferroni-Korrektur anwenden
+p_adjusted_AJ <- p.adjust(p_values_AJ, method = "bonferroni")
+
+# Ergebnisse anzeigen
+adjusted_results_AJ <- data.frame(
+  Comparison = names(p_values),
+  Chi_squared = chi_squared_values_AJ,
+  p_value = p_values_AJ,
+  p_adjusted = p_adjusted_AJ
+)
+
+print(adjusted_results_AJ)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Sozioökonomischer Status
+
+kruskal_result_SS <- kruskal.test(socio.economic.state ~ group, data = mipsnp_Deskriptiv)
+print(kruskal_result_SS)
+
+# Paarweise Kruskal-Wallis-Tests durchführen
+pairwise_results_SS <- list(
+  "CSA vs CTL" = kruskal.test(socio.economic.state ~ group, data = subset(mipsnp_Deskriptiv, group %in% c("CSA", "CTL"))),
+  "CSEM vs CTL" = kruskal.test(socio.economic.state ~ group, data = subset(mipsnp_Deskriptiv, group %in% c("CSEM", "CTL"))),
+  "CSA vs CSEM" = kruskal.test(socio.economic.state ~ group, data = subset(mipsnp_Deskriptiv, group %in% c("CSA", "CSEM")))
+)
+
+# Chi-Quadrat-Werte extrahieren
+chi_squared_values_SS <- sapply(pairwise_results_SS, function(x) x$statistic)
+
+# p-Werte extrahieren
+p_values_SS <- sapply(pairwise_results_SS, function(x) x$p.value)
+
+# Bonferroni-Korrektur anwenden
+p_adjusted_SS <- p.adjust(p_values_SS, method = "bonferroni")
+
+# Ergebnisse anzeigen
+adjusted_results_SS <- data.frame(
+  Comparison = names(p_values),
+  Chi_squared = chi_squared_values_SS,
+  p_value = p_values_SS,
+  p_adjusted = p_adjusted_SS
+)
+
+print(adjusted_results_SS)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# MSI
+
+kruskal_result_M <- kruskal.test(msi_cmsa_sv ~ group...2, data = data_all)
+print(kruskal_result_M)
+
+# Paarweise Kruskal-Wallis-Tests durchführen
+pairwise_results_M <- list(
+  "CSA vs CTL" = kruskal.test(msi_cmsa_sv ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CTL"))),
+  "CSEM vs CTL" = kruskal.test(msi_cmsa_sv ~ group...2, data = subset(data_all, group...2 %in% c("CSEM", "CTL"))),
+  "CSA vs CSEM" = kruskal.test(msi_cmsa_sv ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CSEM")))
+)
+
+# Chi-Quadrat-Werte extrahieren
+chi_squared_values_M <- sapply(pairwise_results_M, function(x) x$statistic)
+
+# p-Werte extrahieren
+p_values_M <- sapply(pairwise_results_M, function(x) x$p.value)
+
+# Bonferroni-Korrektur anwenden
+p_adjusted_M <- p.adjust(p_values_M, method = "bonferroni")
+
+# Ergebnisse anzeigen
+adjusted_results_M <- data.frame(
+  Comparison = names(p_values),
+  Chi_squared = chi_squared_values_M,
+  p_value = p_values_M,
+  p_adjusted = p_adjusted_M
+)
+
+print(adjusted_results_M)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# CTQ (abuse)
+
+kruskal_result_C <- kruskal.test(abuse ~ group...2, data = data_all)
+print(kruskal_result_C)
+
+# Paarweise Kruskal-Wallis-Tests durchführen
+pairwise_results_C <- list(
+  "CSA vs CTL" = kruskal.test(abuse ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CTL"))),
+  "CSEM vs CTL" = kruskal.test(abuse ~ group...2, data = subset(data_all, group...2 %in% c("CSEM", "CTL"))),
+  "CSA vs CSEM" = kruskal.test(abuse ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CSEM")))
+)
+
+# Chi-Quadrat-Werte extrahieren
+chi_squared_values_C <- sapply(pairwise_results_C, function(x) x$statistic)
+
+# p-Werte extrahieren
+p_values_C <- sapply(pairwise_results_C, function(x) x$p.value)
+
+# Bonferroni-Korrektur anwenden
+p_adjusted_C <- p.adjust(p_values_C, method = "bonferroni")
+
+# Ergebnisse anzeigen
+adjusted_results_C <- data.frame(
+  Comparison = names(p_values),
+  Chi_squared = chi_squared_values_C,
+  p_value = p_values_C,
+  p_adjusted = p_adjusted_C
+)
+
+print(adjusted_results_C)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Neurotizismus
+
+kruskal_result_N <- kruskal.test(neuroticism ~ group...2, data = data_all)
+print(kruskal_result_N)
+
+# Paarweise Kruskal-Wallis-Tests durchführen
+pairwise_results_N <- list(
+  "CSA vs CTL" = kruskal.test(neuroticism ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CTL"))),
+  "CSEM vs CTL" = kruskal.test(neuroticism ~ group...2, data = subset(data_all, group...2 %in% c("CSEM", "CTL"))),
+  "CSA vs CSEM" = kruskal.test(neuroticism ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CSEM")))
+)
+
+# Chi-Quadrat-Werte extrahieren
+chi_squared_values_N <- sapply(pairwise_results_N, function(x) x$statistic)
+
+# p-Werte extrahieren
+p_values_N <- sapply(pairwise_results_N, function(x) x$p.value)
+
+# Bonferroni-Korrektur anwenden
+p_adjusted_N <- p.adjust(p_values_N, method = "bonferroni")
+
+# Ergebnisse anzeigen
+adjusted_results_N <- data.frame(
+  Comparison = names(p_values),
+  Chi_squared = chi_squared_values_N,
+  p_value = p_values_N,
+  p_adjusted = p_adjusted_N
+)
+
+print(adjusted_results_N)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# verbales Gedächtnis (PC1)
+
+kruskal_result_VG <- kruskal.test(verbales_G ~ group...2, data = data_all)
+print(kruskal_result)
+
+# Paarweise Kruskal-Wallis-Tests durchführen
+pairwise_results_VG <- list(
+  "CSA vs CTL" = kruskal.test(verbales_G ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CTL"))),
+  "CSEM vs CTL" = kruskal.test(verbales_G ~ group...2, data = subset(data_all, group...2 %in% c("CSEM", "CTL"))),
+  "CSA vs CSEM" = kruskal.test(verbales_G ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CSEM")))
+)
+
+# Chi-Quadrat-Werte extrahieren
+chi_squared_values_VG <- sapply(pairwise_results_VG, function(x) x$statistic)
+
+# p-Werte extrahieren
+p_values_VG <- sapply(pairwise_results_VG, function(x) x$p.value)
+
+# Bonferroni-Korrektur anwenden
+p_adjusted_VG <- p.adjust(p_values_VG, method = "bonferroni")
+
+# Ergebnisse anzeigen
+adjusted_results_VG <- data.frame(
+  Comparison = names(p_values),
+  Chi_squared = chi_squared_values_VG,
+  p_value = p_values_VG,
+  p_adjusted = p_adjusted_VG
+)
+
+print(adjusted_results_VG)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Exekutive Funktionen (PC2)
+
+kruskal_result_EF <- kruskal.test(EF ~ group...2, data = data_all)
+print(kruskal_result)
+
+# Paarweise Kruskal-Wallis-Tests durchführen
+pairwise_results_EF <- list(
+  "CSA vs CTL" = kruskal.test(EF ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CTL"))),
+  "CSEM vs CTL" = kruskal.test(EF ~ group...2, data = subset(data_all, group...2 %in% c("CSEM", "CTL"))),
+  "CSA vs CSEM" = kruskal.test(EF ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CSEM")))
+)
+
+# Chi-Quadrat-Werte extrahieren
+chi_squared_values_EF <- sapply(pairwise_results_EF, function(x) x$statistic)
+
+# p-Werte extrahieren
+p_values_EF <- sapply(pairwise_results_EF, function(x) x$p.value)
+
+# Bonferroni-Korrektur anwenden
+p_adjusted_EF <- p.adjust(p_values_EF, method = "bonferroni")
+
+# Ergebnisse anzeigen
+adjusted_results_EF <- data.frame(
+  Comparison = names(p_values),
+  Chi_squared = chi_squared_values_EF,
+  p_value = p_values_EF,
+  p_adjusted = p_adjusted_EF
+)
+
+print(adjusted_results_EF)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Arbeitsgedaechtnis (PC3)
+
+kruskal_result_AG <- kruskal.test(AG ~ group...2, data = data_all)
+print(kruskal_result_AG)
+
+# Paarweise Kruskal-Wallis-Tests durchführen
+pairwise_results_AG <- list(
+  "CSA vs CTL" = kruskal.test(AG ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CTL"))),
+  "CSEM vs CTL" = kruskal.test(AG ~ group...2, data = subset(data_all, group...2 %in% c("CSEM", "CTL"))),
+  "CSA vs CSEM" = kruskal.test(AG ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CSEM")))
+)
+
+# Chi-Quadrat-Werte extrahieren
+chi_squared_values_AG <- sapply(pairwise_results_AG, function(x) x$statistic)
+
+# p-Werte extrahieren
+p_values_AG <- sapply(pairwise_results_AG, function(x) x$p.value)
+
+# Bonferroni-Korrektur anwenden
+p_adjusted_AG <- p.adjust(p_values_AG, method = "bonferroni")
+
+# Ergebnisse anzeigen
+adjusted_results_AG <- data.frame(
+  Comparison = names(p_values),
+  Chi_squared = chi_squared_values_AG,
+  p_value = p_values_AG,
+  p_adjusted = p_adjusted_AG
+)
+
+print(adjusted_results_AG)
+```
+
+```{r}
+# CTQ Deskription und Gruppenvergleiche
+#"ea_cat", "pa_cat", "sa_cat", "en_cat", "pn_cat"
+
+#~~~~~~~~~~~~~~~~~~~
+# DESKRIPTIV CTQ
+#~~~~~~~~~~~~~~~~~~~
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Emotional Abuse (ea_cat)
+
+# Berechnung der Prozentsätze
+percentages_ea <- aggregate(data_all$ea_cat ~ group...2, data = data_all, FUN = function(x) {
+  c(Percent_0 = sum(x == 0) / length(x) * 100,
+    Percent_1 = sum(x == 1) / length(x) * 100)
+})
+
+# Resultat in ein Dataframe umwandeln
+percentages_ea <- do.call(data.frame, percentages_ea)
+
+# Prozentsätze anzeigen
+print(percentages_ea)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Physical Abuse (pa_cat)
+
+# Berechnung der Prozentsätze
+percentages_pa <- aggregate(data_all$pa_cat ~ group...2, data = data_all, FUN = function(x) {
+  c(Percent_0 = sum(x == 0) / length(x) * 100,
+    Percent_1 = sum(x == 1) / length(x) * 100)
+})
+
+# Resultat in ein Dataframe umwandeln
+percentages_pa <- do.call(data.frame, percentages_pa)
+
+# Prozentsätze anzeigen
+print(percentages_pa)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Sexual Assault (sa_cat)
+# ACHTUNG: hier gibt es nicht nur ja (1) nein (0), sondern es gibt 3 Stufen (0, 1 und 2)
+
+# Berechnung der Prozentsätze
+percentages_sa <- aggregate(data_all$sa_cat ~ group...2, data = data_all, FUN = function(x) {
+  c(Percent_0 = sum(x == 0) / length(x) * 100,
+    Percent_1 = sum(x == 1) / length(x) * 100,
+    Percent_2 = sum(x == 2) / length(x) * 100)
+})
+
+# Resultat in ein Dataframe umwandeln
+percentages_sa <- do.call(data.frame, percentages_sa)
+
+# Prozentsätze anzeigen
+print(percentages_sa)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Emotional Neglect (en_cat)
+
+# Berechnung der Prozentsätze
+percentages_en <- aggregate(data_all$en_cat ~ group...2, data = data_all, FUN = function(x) {
+  c(Percent_0 = sum(x == 0) / length(x) * 100,
+    Percent_1 = sum(x == 1) / length(x) * 100)
+})
+
+# Resultat in ein Dataframe umwandeln
+percentages_en <- do.call(data.frame, percentages_en)
+
+# Prozentsätze anzeigen
+print(percentages_en)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Physical Neglect (pn_cat)
+
+# Berechnung der Prozentsätze
+percentages_pn <- aggregate(data_all$pn_cat ~ group...2, data = data_all, FUN = function(x) {
+  c(Percent_0 = sum(x == 0) / length(x) * 100,
+    Percent_1 = sum(x == 1) / length(x) * 100)
+})
+
+# Resultat in ein Dataframe umwandeln
+percentages_pn <- do.call(data.frame, percentages_pn)
+
+# Prozentsätze anzeigen
+print(percentages_pn)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+#########################
+##GRUPPENVERGLEICHE CTQ##
+#########################
+
+# Emotional Abuse (ea_cat)
+
+kruskal_result_ea_cat <- kruskal.test(ea_cat ~ group...2, data = data_all)
+print(kruskal_result)
+
+# Paarweise Kruskal-Wallis-Tests durchführen
+pairwise_results_ea_cat <- list(
+  "CSA vs CTL" = kruskal.test(ea_cat ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CTL"))),
+  "CSEM vs CTL" = kruskal.test(ea_cat ~ group...2, data = subset(data_all, group...2 %in% c("CSEM", "CTL"))),
+  "CSA vs CSEM" = kruskal.test(ea_cat ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CSEM")))
+)
+
+# Chi-Quadrat-Werte extrahieren
+chi_squared_values_ea_cat <- sapply(pairwise_results_ea_cat, function(x) x$statistic)
+
+# p-Werte extrahieren
+p_values_ea_cat <- sapply(pairwise_results_ea_cat, function(x) x$p.value)
+
+# Bonferroni-Korrektur anwenden
+p_adjusted_ea_cat <- p.adjust(p_values_ea_cat, method = "bonferroni")
+
+# Ergebnisse anzeigen
+adjusted_results_ea_cat <- data.frame(
+  Comparison = names(p_values),
+  Chi_squared = chi_squared_values_ea_cat,
+  p_value = p_values_ea_cat,
+  p_adjusted = p_adjusted_ea_cat
+)
+
+print(adjusted_results_ea_cat)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Physical Abuse (pa_cat)
+
+kruskal_result_pn_cat <- kruskal.test(pa_cat ~ group...2, data = data_all)
+print(kruskal_result)
+
+# Paarweise Kruskal-Wallis-Tests durchführen
+pairwise_results_pn_cat <- list(
+  "CSA vs CTL" = kruskal.test(pa_cat ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CTL"))),
+  "CSEM vs CTL" = kruskal.test(pa_cat ~ group...2, data = subset(data_all, group...2 %in% c("CSEM", "CTL"))),
+  "CSA vs CSEM" = kruskal.test(pa_cat ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CSEM")))
+)
+
+# Chi-Quadrat-Werte extrahieren
+chi_squared_values_pn_cat <- sapply(pairwise_results_pn_cat, function(x) x$statistic)
+
+# p-Werte extrahieren
+p_values_pn_cat <- sapply(pairwise_results_pn_cat, function(x) x$p.value)
+
+# Bonferroni-Korrektur anwenden
+p_adjusted_pn_cat <- p.adjust(p_values_pn_cat, method = "bonferroni")
+
+# Ergebnisse anzeigen
+adjusted_results_pn_cat <- data.frame(
+  Comparison = names(p_values),
+  Chi_squared = chi_squared_values_pn_cat,
+  p_value = p_values_pn_cat,
+  p_adjusted = p_adjusted_pn_cat
+)
+
+print(adjusted_results_pn_cat)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Sexual Assault (sa_cat)
+# ACHTUNG: hier gibt es nicht nur ja (1) nein (0), sondern es gibt 3 Stufen (0, 1 und 2)
+
+kruskal_result_sa_cat <- kruskal.test(sa_cat ~ group...2, data = data_all)
+print(kruskal_result_sa_cat)
+
+# Paarweise Kruskal-Wallis-Tests durchführen
+pairwise_results_sa_cat <- list(
+  "CSA vs CTL" = kruskal.test(sa_cat ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CTL"))),
+  "CSEM vs CTL" = kruskal.test(sa_cat ~ group...2, data = subset(data_all, group...2 %in% c("CSEM", "CTL"))),
+  "CSA vs CSEM" = kruskal.test(sa_cat ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CSEM")))
+)
+
+# Chi-Quadrat-Werte extrahieren
+chi_squared_values_sa_cat <- sapply(pairwise_results_sa_cat, function(x) x$statistic)
+
+# p-Werte extrahieren
+p_values_sa_cat <- sapply(pairwise_results_sa_cat, function(x) x$p.value)
+
+# Bonferroni-Korrektur anwenden
+p_adjusted_sa_cat <- p.adjust(p_values_sa_cat, method = "bonferroni")
+
+# Ergebnisse anzeigen
+adjusted_results_sa_cat <- data.frame(
+  Comparison = names(p_values),
+  Chi_squared = chi_squared_values_sa_cat,
+  p_value = p_values_sa_cat,
+  p_adjusted = p_adjusted_sa_cat
+)
+
+print(adjusted_results_sa_cat)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Emotional Neglect (en_cat)
+
+kruskal_result_en_cat <- kruskal.test(en_cat ~ group...2, data = data_all)
+print(kruskal_result_en_cat)
+
+# Paarweise Kruskal-Wallis-Tests durchführen
+pairwise_results_en_cat <- list(
+  "CSA vs CTL" = kruskal.test(en_cat ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CTL"))),
+  "CSEM vs CTL" = kruskal.test(en_cat ~ group...2, data = subset(data_all, group...2 %in% c("CSEM", "CTL"))),
+  "CSA vs CSEM" = kruskal.test(en_cat ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CSEM")))
+)
+
+# Chi-Quadrat-Werte extrahieren
+chi_squared_values_en_cat <- sapply(pairwise_results_en_cat, function(x) x$statistic)
+
+# p-Werte extrahieren
+p_values_en_cat <- sapply(pairwise_results_en_cat, function(x) x$p.value)
+
+# Bonferroni-Korrektur anwenden
+p_adjusted_en_cat <- p.adjust(p_values_en_cat, method = "bonferroni")
+
+# Ergebnisse anzeigen
+adjusted_results_en_cat <- data.frame(
+  Comparison = names(p_values),
+  Chi_squared = chi_squared_values_en_cat,
+  p_value = p_values_en_cat,
+  p_adjusted = p_adjusted_en_cat
+)
+
+print(adjusted_results_en_cat)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# Physical Neglect (pn_cat)
+kruskal_result_pn_cat <- kruskal.test(pn_cat ~ group...2, data = data_all)
+print(kruskal_result)
+
+# Paarweise Kruskal-Wallis-Tests durchführen
+pairwise_results_pn_cat <- list(
+  "CSA vs CTL" = kruskal.test(pn_cat ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CTL"))),
+  "CSEM vs CTL" = kruskal.test(pn_cat ~ group...2, data = subset(data_all, group...2 %in% c("CSEM", "CTL"))),
+  "CSA vs CSEM" = kruskal.test(pn_cat ~ group...2, data = subset(data_all, group...2 %in% c("CSA", "CSEM")))
+)
+
+# Chi-Quadrat-Werte extrahieren
+chi_squared_values_pn_cat <- sapply(pairwise_results_pn_cat, function(x) x$statistic)
+
+# p-Werte extrahieren
+p_values_pn_cat <- sapply(pairwise_results_pn_cat, function(x) x$p.value)
+
+# Bonferroni-Korrektur anwenden
+p_adjusted_pn_cat <- p.adjust(p_values_pn_cat, method = "bonferroni")
+
+# Ergebnisse anzeigen
+adjusted_results_pn_cat <- data.frame(
+  Comparison = names(p_values),
+  Chi_squared = chi_squared_values_pn_cat,
+  p_value = p_values_pn_cat,
+  p_adjusted = p_adjusted_pn_cat
+)
+
+print(adjusted_results_pn_cat)
+```
+
+```{r}
+# Strukturgleichungsmodell
+
+#install.packages(lavaan) 
+install.packages("lavaan")
+library(lavaan)
+
+###########################################
+###SEM mit Neurotizismus (nach Coralie)###
+###########################################
+
+myModelN <- '
+#regressions
+abuse ~ neuroticism
+msi_cmsa_sv ~ abuse + neuroticism
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+modN <- sem(myModelN, std.ov = T, data = abuse.df)
+
+summary(modN, standardized=T)
+
+###########################################
+###SEM ohne Neurotizismus (nach Coralie)###
+###########################################
+
+myModel0 <- '
+#regressions
+msi_cmsa_sv ~ abuse
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+
+abuse.df$pa_cat <- as.numeric(abuse.df$pa_cat)
+
+mod0 <- sem(myModel0, std.ov = T, data = abuse.df)
+
+summary(mod0, standardized=T)
+
+
+#---------------------------------------------------------------------------------------------------------------------------
+
+#################################
+#####SEM mit zwei Mediatoren#####
+#################################
+
+# Lade das Paket
+library(lavaan)
+
+# NACHEINANDER GESCHALTEN!
+
+# PC1 (verbales_Gedächtnis) -> PC2 (Exekutive Funktionen)
+
+myModel_vG_EF <- '
+#regressions
+abuse ~ verbales_G
+abuse ~ 0*EF
+verbales_G ~ EF
+msi_cmsa_sv ~ abuse + 0*verbales_G + EF
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_vG_EF <- sem(myModel_vG_EF, std.ov = T, data = data_all)
+
+summary(mod_vG_EF, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# PC1 (verbales Gedächtnis) -> PC3 (Arbeitsgedächtnis)
+
+myModel_vG_AG <- '
+#regressions
+abuse ~ verbales_G
+abuse ~ 0*AG
+verbales_G ~ AG
+msi_cmsa_sv ~ abuse + 0*verbales_G + AG
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_vG_AG <- sem(myModel_vG_AG, std.ov = T, data = data_all)
+
+summary(mod_vG_AG, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# PC2 (Exekutive Funktionen) -> PC1 (verbales Gedächtnis)
+
+myModel_EF_vG <- '
+#regressions
+abuse ~ EF
+abuse ~ 0*verbales_G
+EF ~ verbales_G
+msi_cmsa_sv ~ abuse + 0*EF + verbales_G
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_EF_vG <- sem(myModel_EF_vG, std.ov = T, data = data_all)
+
+summary(mod_EF_vG, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# PC2 (Exekutive Fuktionen) -> PC3 (Arbeitsgedächtnis)
+
+myModel_EF_AG <- '
+#regressions
+abuse ~ EF
+abuse ~ 0*AG
+EF ~ AG
+msi_cmsa_sv ~ abuse + 0*EF + AG
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_EF_AG <- sem(myModel_EF_AG, std.ov = T, data = data_all)
+
+summary(mod_EF_AG, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# PC3 (Arbeitsgedächtnis) -> PC1 (verbales Gedächtnis)
+
+myModel_AG_vG <- '
+#regressions
+abuse ~ AG
+abuse ~ 0*verbales_G
+AG ~ verbales_G
+msi_cmsa_sv ~ abuse + 0*AG + verbales_G
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_AG_vG <- sem(myModel_AG_vG, std.ov = T, data = data_all)
+
+summary(mod_AG_vG, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# PC3 (Arbeitsgedächtnis) -> PC2 (Exekutive Funktionen)
+
+myModel_AG_EF <- '
+#regressions
+abuse ~ AG
+abuse ~ 0*EF
+AG ~ EF
+msi_cmsa_sv ~ abuse + 0*AG + EF
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_AG_EF <- sem(myModel_AG_EF, std.ov = T, data = data_all)
+
+summary(mod_AG_EF, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# ZWEI UNABÄNGIGE
+
+# P1 (verbales Gedächtnis) / PC2 (Exekutive Funktionen)
+
+myModel_vGEF <- '
+#regressions
+verbales_G ~ abuse 
+EF ~ abuse 
+msi_cmsa_sv ~  verbales_G  + EF
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_vGEF <- sem(myModel_vGEF, std.ov = T, data = data_all)
+
+summary(mod_vGEF, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# P1 (verbales Gedächtnis) / PC3 (Arbeitsgedächtnis)
+
+myModel_vGAG <- '
+#regressions
+verbales_G ~ abuse 
+AG ~ abuse 
+msi_cmsa_sv ~  verbales_G + AG
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_vGAG <- sem(myModel_vGAG, std.ov = T, data = data_all)
+
+summary(mod_vGAG, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# PC2 (Exekutive Funktionen) / PC3 (Arbeitsgedächtnis)
+
+myModel_EFAG <- '
+#regressions
+EF ~ abuse 
+nonverbal ~ abuse 
+msi_cmsa_sv ~  EF + AG
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_EFAG <- sem(myModel_EFAG, std.ov = T, data = data_all)
+
+summary(mod_EFAG, standardized=T)
+
+
+#################################
+#####SEM mit drei Mediatoren#####
+#################################
+
+# Lade das Paket
+library(lavaan)
+
+# NACHEINANDER GESCHALTEN
+
+# PC1 (verbales Gedächtnis) -> PC2 (Exekutive Funktionen) -> PC3 (Arbeitsgedächtnis)
+
+myModel_vG_EF_AG <- '
+#regressions
+abuse ~ verbales_G
+abuse ~ 0*EF
+abuse ~ 0*AG
+verbales_G ~ EF
+EF ~ AG
+msi_cmsa_sv ~ abuse + 0*verbales_G + 0*EF + AG
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_vG_EF_AG <- sem(myModel_vG_EF_AG, std.ov = T, data = data_all)
+
+summary(mod_vG_EF_AG, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# PC1 (verbales Gedächtnis) -> PC3 (Arbeitsgedächtnis) -> PC2 (Exekutive Funktionen)
+
+myModel_vG_Ag_EF <- '
+#regressions
+abuse ~ verbales_G
+abuse ~ 0*AG 
+abuse ~ 0*EF
+verbales_G ~ AG 
+AG  ~ EF
+msi_cmsa_sv ~ abuse + 0*verbales_G + 0*AG + EF
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_vG_AG_EF <- sem(myModel_vG_Ag_EF, std.ov = T, data = data_all)
+
+summary(mod_vG_AG_EF, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# PC2 (Exekutive Funktionen) -> PC3 (Arbeitsgedächtnis) -> PC1 (verbales Gedächtnis)
+
+myModel_EF_AG_vG <- '
+#regressions
+abuse ~ EF
+abuse ~ 0*AG
+abuse ~ 0*verbales_G
+EF ~ AG
+AG ~ verbales_G
+msi_cmsa_sv ~ abuse + 0*EF + 0*AG + verbales_G
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_EF_AG_vG <- sem(myModel_EF_AG_vG, std.ov = T, data = data_all)
+
+summary(mod_EF_AG_vG, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# PC2 (Exekutive Funktionen) -> PC1 (verbales Gedächtnis) -> PC3 (Arbeitsgedächtnis)
+
+myModel_EF_vG_AG <- '
+#regressions
+abuse ~ EF
+abuse ~ 0*verbales_G
+abuse ~ 0*AG
+EF ~ AG
+verbales_G ~ AG
+msi_cmsa_sv ~ abuse + 0*EF + 0*verbales_G + AG
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_EF_vG_AG <- sem(myModel_EF_vG_AG, std.ov = T, data = data_all)
+
+summary(mod_EF_vG_AG , standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# PC3 (Arbeitsgedächtnis) -> PC1 (verbales Gedächtnis) -> PC2 (Exekutive Funktionen)
+
+myModel_AG_vG_EF <- '
+#regressions
+abuse ~ AG
+abuse ~ 0*verbales_G
+abuse ~ 0*EF
+AG ~ EF
+verbales_G ~ EF
+msi_cmsa_sv ~ abuse + 0*AG + 0*verbales_G + EF
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_AG_vG_EF <- sem(myModel_AG_vG_EF, std.ov = T, data = data_all)
+
+summary(mod_AG_vG_EF, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# PC3 (Arbeitsgedächtnis) -> PC2 (Exekutive Funktionen) -> PC1 (verbales Gedächtnis)
+
+myModel_AG_EF_vG <- '
+#regressions
+abuse ~ AG
+abuse ~ 0*EF
+abuse ~ 0*verbales_G
+AG ~ EF
+EF ~ verbales_G
+msi_cmsa_sv ~ abuse + 0*AG + 0*EF + verbales_G
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_AG_EF_vG <- sem(myModel_AG_EF_vG, std.ov = T, data = data_all)
+
+summary(mod_AG_EF_vG, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# ZWEI NACHEINANDER GESCHALTEN, EINS UNABÄNGIG
+
+# PC1 (verbales Gedächtnis) -> PC2 (Exekutive Funktionen) / PC3 (Arbeitsgedächtnis)
+
+myModel_vG_EFAG <- '
+#regressions
+abuse ~ verbales_G
+abuse ~ 0*EF
+verbales_G ~ EF
+AG ~ abuse
+msi_cmsa_sv ~  EF + AG
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_vG_EFAG <- sem(myModel_vG_EFAG, std.ov = T, data = data_all)
+
+summary(mod_vG_EFAG, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# PC1 (verbales Gedächtnis) -> PC3 (Arbeitsgedächtnis) / PC2 (Exekutive Funktionen)
+
+myModel_vG_AGEF <- '
+#regressions
+abuse ~ verbales_G
+abuse ~ 0*AG
+verbales_G ~ AG
+EF ~ abuse
+msi_cmsa_sv ~ AG + EF
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_vG_AGEF <- sem(myModel_vG_AGEF, std.ov = T, data = data_all)
+
+summary(mod_vG_AGEF, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# PC2 (Exekutive Funktionen) -> PC3 (Arbeitsgedächtnis) / PC1 (verbales Gedächtnis)
+
+myModel_EF_AGvG <- '
+#regressions
+abuse ~ EF
+abuse ~ 0*AG
+EF ~ AG
+verbales_G ~ abuse
+msi_cmsa_sv ~ AG + verbales_G
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_EF_AGvG <- sem(myModel_EF_AGvG, std.ov = T, data = data_all)
+
+summary(mod_EF_AGvG, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# PC2 (Exekutive Funktionen) -> PC1 (verbales Gedächtnis) / PC3 (Arbeitsgedächtnis)
+
+myModel_EF_vGAG <- '
+#regressions
+abuse ~ EF
+abuse ~ 0*verbales_G
+EF ~ verbales_G
+AG ~ abuse
+msi_cmsa_sv ~ verbales_G + AG
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_EF_vGAG <- sem(myModel_EF_vGAG, std.ov = T, data = data_all)
+
+summary(mod_EF_vGAG, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# PC3 (Arbeitsgedächtnis) -> PC1 (verbales Gedächtnis) / PC2 (Exekutive Funktionen)
+
+myModel_AG_vGEF <- '
+#regressions
+abuse ~ AG
+abuse ~ 0*verbales_G
+AG ~ verbales_G
+EF ~ abuse
+msi_cmsa_sv ~ abuse + verbales_G + EF
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_AG_vGEF <- sem(myModel_AG_vGEF, std.ov = T, data = data_all)
+
+summary(mod_AG_vGEF, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# PC3 (Arbeitsgedächtnis) -> PC2 (Exekutive Funktionen) / PC1 (verbales Gedächtnis)
+
+myModel_AG_EFvG <- '
+#regressions
+abuse ~ AG
+abuse ~ 0*EF
+AG ~ EF
+verbales_G ~ abuse
+msi_cmsa_sv ~ EF + verbales_G
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_AG_EFvG <- sem(myModel_AG_EFvG, std.ov = T, data = data_all)
+
+summary(mod_AG_EFvG, standardized=T)
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# DREI UNABÄNGIG GESCHALTEN
+
+# PC1 (verbales Gedächtnis) / PC2 (Exekutive Funktionen) / PC3 (Arbeitsgedächtnis)
+
+myModel_vGEFAG <- '
+#regressions
+verbales_G ~ abuse 
+EF ~ abuse
+AG ~ abuse 
+msi_cmsa_sv ~  verbales_G + EF + AG
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_vGEFAG <- sem(myModel_vGEFAG, std.ov = T, data = data_all)
+
+summary(mod_vGEFAG, standardized=T)
+
+```
+
+
+```{r}
+#################################
+### STRUKTURGLEICHUNGSMODELLE ###
+#################################
+
+#install.packages(lavaan) 
+install.packages("lavaan")
+install.packages("lavaanPlot")
+library(lavaan)
+library("lavaanPlot")
+
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+# KORRELATIONEN ANZEIGEN
+
+round(cor(data_all[c( "age", "edu", "verbales_G", "EF", "AG")], use = "pairwise"))
+
+# -----------------------------------------------------------------------------------------------------------------------------
+
+###########################################
+###SEM mit Neurotizismus (nach Coralie)###
+###########################################
+
+myModelN <- '
+#regressions
+abuse ~ neuroticism
+msi_cmsa_sv ~ abuse + neuroticism
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+modN <- sem(myModelN, std.ov = T, data = abuse.df)
+
+summary(modN, standardized=T, fit.measures=T)
+
+###########################################
+###SEM ohne Neurotizismus (nach Coralie)###
+###########################################
+
+myModel0 <- '
+#regressions
+msi_cmsa_sv ~ abuse
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+
+abuse.df$pa_cat <- as.numeric(abuse.df$pa_cat)
+
+mod0 <- sem(myModel0, std.ov = T, data = abuse.df)
+
+summary(mod0, standardized=T, fit.measures=T)
+
+
+#---------------------------------------------------------------------------------------------------------------------------
+
+#################################
+#####SEM mit einem Mediator#####
+#################################
+
+# P1 (verbales Gedaechtnis) 
+
+myModel_vG <- '
+#regressions
+verbales_G ~ abuse 
+msi_cmsa_sv ~  abuse + verbales_G 
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_vG <- sem(myModel_vG, std.ov = T, data = data_all)
+
+summary(mod_vG, standardized=T, fit.measures=T)
+
+#---------------------------------------------------------------------------------------------------------------------------
+
+# P2 (Exekutive Funktionen) 
+
+myModel_EF <- '
+#regressions
+EF ~ abuse 
+msi_cmsa_sv ~  abuse + EF 
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_EF <- sem(myModel_EF, std.ov = T, data = data_all)
+
+summary(mod_EF, standardized=T, fit.measures=T)
+
+#---------------------------------------------------------------------------------------------------------------------------
+
+# P3 (Arbeitsgedächtnis) 
+
+myModel_AG <- '
+#regressions
+AG ~ abuse 
+msi_cmsa_sv ~ abuse + AG
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_AG <- sem(myModel_AG, std.ov = T, data = data_all)
+
+summary(mod_AG, standardized=T, fit.measures=T)
+
+#---------------------------------------------------------------------------------------------------------------------------
+
+######################
+###MODELLVERBGLEICH###
+######################
+
+anova(mod_vG, mod_EF, mod_AG)
+
+#---------------------------------------------------------------------------------------------------------------------------
+
+#################################
+#####SEM mit zwei Mediatoren#####
+#################################
+
+# ZWEI UNABHÄNGIG
+
+# P1 (verbales Gedaechtnis) / PC2 (Exekutive Funktionen)
+
+myModel_vGEF <- '
+#regressions
+verbales_G ~ abuse 
+EF ~ abuse 
+msi_cmsa_sv ~  abuse + verbales_G + EF
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_vGEF <- sem(myModel_vGEF, std.ov = T, data = data_all)
+
+summary(mod_vGEF, standardized=T, fit.measures=T)
+
+#---------------------------------------------------------------------------------------------------------------------------
+
+# P1 (verbales Gedaechtnis) / PC3 (Arbeitsgedaechtnis)
+
+myModel_vGAG <- '
+#regressions
+verbales_G ~ abuse 
+AG ~ abuse 
+msi_cmsa_sv ~  abuse + verbales_G + AG
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_vGAG <- sem(myModel_vGAG, std.ov = T, data = data_all)
+
+summary(mod_vGAG, standardized=T, fit.measures=T)
+
+#---------------------------------------------------------------------------------------------------------------------------
+
+# PC2 (Exekutive Funktionen) / PC3 (Arbeitsgedaechtnis)
+
+myModel_EFAG <- '
+#regressions
+EF ~ abuse 
+AG ~ abuse 
+msi_cmsa_sv ~  abuse + EF + AG
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_EFAG <- sem(myModel_EFAG, std.ov = T, data = data_all)
+
+summary(mod_EFAG, standardized=T, fit.measures=T)
+
+#---------------------------------------------------------------------------------------------------------------------------
+
+#################################
+#####SEM mit drei Mediatoren#####
+#################################
+
+# DREI UNABÄNGIG GESCHALTEN
+
+# PC1 (verbales Gedaechtnis) / PC2 (Exekutive Funktionen) / PC3 (Arbeitsgedaechtnis)
+
+myModel_vGEFAG <- '
+#regressions
+verbales_G ~ abuse 
+EF ~ abuse
+AG ~ abuse 
+msi_cmsa_sv ~  abuse + verbales_G + EF + AG
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+
+ mod_vGEFAG <- sem(myModel_vGEFAG, std.ov = T, data = data_all)
+
+summary(mod_vGEFAG, standardized=T, fit.measures=T)
+
+#---------------------------------------------------------------------------------------------------------------------------
+
+######################
+###MODELLVERBGLEICH###
+######################
+
+anova(mod_vGEFAG, mod_vGEF, mod_EFAG, mod_vGAG)
+
+
+# Vergleich ALLER Modelle
+
+anova(mod_vGEFAG, mod_vGEF, mod_EFAG, mod_vGAG, mod_vG, mod_EF, mod_AG)
+
+#---------------------------------------------------------------------------------------------------------------------------
+
+#############################
+###kog.L und Neurotizismus###
+#############################
+
+myModelvGN <- '
+#regressions
+verbales_G ~ abuse  
+neuroticism ~ abuse
+msi_cmsa_sv ~ abuse + verbales_G + neuroticism
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+modvGN <- sem(myModelvGN, std.ov = T, data = data_all)
+
+summary(modvGN, standardized=T, fit.measures=T)
+
+
+# Modellvergleich, Modell mit Neuro und Kogn und Modell Coralie
+
+anova(modvGN, modN) 
+
+#---------------------------------------------------------------------------------------------------------------------------
+
+# Vergleich ALLER Modelle + Neurotizismus
+
+anova(mod_vGEFAG, mod_vGEF, mod_EFAG, mod_vGAG, mod_vG, mod_EF, mod_AG, modvGN)
+```
+
+
+```{r}
+# Mediationsmodell 
+
+install.packages("lavaan")
+library(lavaan)
+
+#########
+###SEM###
+#########
+
+install.packages("readr")
+library(readr)
+
+# Zeile id MIPS.3177 entfernen
+data_all <- subset(data_all, id!= "MIPS.3177"& id!= "MIPS.2223")
+
+#############################
+###MIT NEUROTIZISMUS#########
+#############################
+
+myModel <- '
+#regressions
+abuse ~ neuroticism
+msi_cmsa_sv ~ abuse + neuroticism
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod <- sem(myModel, std.ov = T, data = data_all)
+
+summary(mod, standardized=T, fit.measures=T)
+
+
+#############################
+###MIT VERBALEM GEDAECHTNIS##
+#############################
+
+myModel_CTQ_vG <- '
+#regressions
+abuse ~ verbales_G
+msi_cmsa_sv ~ abuse + verbales_G
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_CTQ_vG <- sem(myModel_CTQ_vG, std.ov = T, data = data_all)
+
+summary(mod_CTQ_vG, standardized=T, fit.measures=T)
+
+
+############################
+#MIT EXEKUTIVEN FUNKTIONEN##
+############################
+
+myModel_CTQ_EF <- '
+#regressions
+abuse ~ EF
+msi_cmsa_sv ~ abuse + EF
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_CTQ_EF <- sem(myModel_CTQ_EF, std.ov = T, data = data_all)
+
+summary(mod_CTQ_EF, standardized=T, fit.measures=T)
+
+
+#############################
+###MIT ARBEITSGEDAECHTNIS####
+#############################
+
+myModel_CTQ_AG <- '
+#regressions
+abuse ~ AG
+msi_cmsa_sv ~ abuse + AG
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+mod_CTQ_AG <- sem(myModel_CTQ_AG, std.ov = T, data = data_all)
+
+summary(mod_CTQ_AG, standardized=T, fit.measures=T)
+
+#---------------------------------------------------------------------------------------------------------------------------
+
+# Modellvergleich 
+
+anova(mod, mod_CTQ_vG, mod_CTQ_EF, mod_CTQ_AG, mod_vGEF, mod_vGAG, mod_EFAG, mod_vGEFAG)
+
+
+#############################
+###kog.L und Neurotizismus###
+#############################
+
+myModelvGN <- '
+#regressions
+verbales_G ~ abuse  
+neuroticism ~ abuse
+msi_cmsa_sv ~ abuse + verbales_G + neuroticism
+
+#latent variable
+abuse =~ ea_cat + pa_cat + sa_cat + en_cat + pn_cat
+'
+modvGN <- sem(myModelvGN, std.ov = T, data = data_all)
+
+summary(modvGN, standardized=T, fit.measures=T)
+
+
+# Modellvergleich, Modell mit Neuro und Kogn und Modell Coralie
+
+anova(modvGN, modN) 
+
+#---------------------------------------------------------------------------------------------------------------------------
+
+# Vergleich ALLER Modelle + Neurotizismus
+
+anova(mod_vGEFAG, mod_vGEF, mod_EFAG, mod_vGAG, mod_vG, mod_EF, mod_AG, modvGN)
+
+```
+
+
+
+
